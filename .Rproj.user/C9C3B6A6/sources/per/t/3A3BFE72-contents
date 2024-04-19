@@ -1,0 +1,129 @@
+#
+# This is a Shiny web application. You can run the application by clicking
+# the 'Run App' button above.
+#
+# Find out more about building applications with Shiny here:
+#
+#    https://shiny.posit.co/
+#
+
+packages <-
+  c(
+    "shiny",
+    "shinythemes",
+    "DT",
+    "stringr",
+    "tidyr",
+    "dplyr",
+    "purrr",
+    "lubridate",
+    "ggplot2",
+    "ggthemes",
+    "plotly",
+    "knitr",
+    "tidyverse",
+    "broom",
+    "DT",
+    "ggmap",
+    "ggthemes",
+    "maps",
+    "statebins",
+    "dplyr",
+    "readr",
+    "mapproj",
+    "RColorBrewer",
+    "stringr",
+    "scales",
+    "tidyverse",
+    "readxl",
+    "statebins",
+    "treemapify",
+    "RJSONIO",
+    "XML",
+    "RCurl",
+    "bindrcpp",
+    "tmap",
+    "rnaturalearth",
+    "sf",
+    "urbnmapr",
+    "leaflet",
+    "tools",
+    "ggplot2",
+    "htmlwidgets"
+  )
+
+
+
+packages <- lapply(packages, FUN = function(x) {
+  if(!require(x, character.only = TRUE)) {
+    install.packages(x)
+    library(x, character.only = TRUE)
+  }
+}
+)
+
+## Data Pre-processing
+df <- read.csv("./Data/dataviz_nyc311.csv")
+unique(df$Complaint.Type)
+
+df <- df %>%
+  mutate(Complaint.Type = case_when(
+    Complaint.Type %in% c("Noise - Residential") ~ "Residential",
+    Complaint.Type %in% c("Noise - Commercial") ~ "Commercial",
+    Complaint.Type %in% c("Noise - Park") ~ "Park",
+    Complaint.Type %in% c("Noise - Street/Sidewalk") ~ "Street/Sidewalk",
+    Complaint.Type %in% c("Public Assembly") ~ "Public Assembly",
+    Complaint.Type %in% c("Noise") ~ "Misc",
+    TRUE ~ "Misc"  # Any other category not listed above will be labeled as "Misc"
+  ))
+
+
+
+
+write.csv(head(df, 250), "df.csv")
+
+# Define UI for application that draws a histogram
+ui <- fluidPage(
+  theme = shinytheme("yeti"),
+  
+    # Application title
+  
+    titlePanel("NYC Noise Complaints - A broad overview"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("complaintType", "Select Complaint Type:",
+                  choices = unique(df$complaint_type),
+                  selected = unique(df$complaint_type),
+                  multiple = TRUE),
+      checkboxGroupInput("borough", "Select Borough:",
+                         choices = unique(df$borough),
+                         selected = unique(df$borough))
+    ),
+    mainPanel(
+      leafletOutput("map")
+    )
+  )
+  
+)
+
+# Define server logic required to draw a histogram
+server <- function(input, output) {
+  # Reactive expression to filter data based on selections
+  filteredData <- reactive({
+    df %>%
+      filter(borough %in% input$borough, complaint_type %in% input$complaintType)
+  })
+  
+  # Render the Leaflet map
+  output$map <- renderLeaflet({
+    leaflet(data = filteredData()) %>%
+      addTiles() %>%
+      addCircleMarkers(~longitude, ~latitude,
+                       color = ~complaint_type, clusterOptions = markerClusterOptions(),
+                       popup = ~paste("Type:", complaint_type, "<br>Borough:", borough),
+                       opacity = 1, fillOpacity = 1)
+  })
+}
+
+# Run the application
+shinyApp(ui = ui, server = server)

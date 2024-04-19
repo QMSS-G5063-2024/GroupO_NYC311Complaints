@@ -1,0 +1,215 @@
+#
+# This is a Shiny web application. You can run the application by clicking
+# the 'Run App' button above.
+#
+# Find out more about building applications with Shiny here:
+#
+#    https://shiny.posit.co/
+#
+
+## Assignment 4
+## author: "Jaydon Jun Yu Chin"
+## date: "2024-04-11"
+
+## Question 3: Audio Features
+
+packages <-
+  c(
+    "shiny",
+    "shinythemes",
+    "DT",
+    "stringr",
+    "tidyr",
+    "dplyr",
+    "purrr",
+    "lubridate",
+    "ggplot2",
+    "ggthemes",
+    "plotly",
+    "knitr",
+    "tidyverse",
+    "broom",
+    "DT",
+    "ggmap",
+    "ggthemes",
+    "maps",
+    "statebins",
+    "dplyr",
+    "readr",
+    "mapproj",
+    "RColorBrewer",
+    "stringr",
+    "scales",
+    "tidyverse",
+    "readxl",
+    "statebins",
+    "treemapify",
+    "RJSONIO",
+    "XML",
+    "RCurl",
+    "bindrcpp",
+    "tmap",
+    "rnaturalearth",
+    "sf",
+    "urbnmapr",
+    "leaflet",
+    "tools",
+    "ggplot2",
+    "htmlwidgets"
+  )
+
+
+
+  packages <- lapply(packages, FUN = function(x) {
+  if(!require(x, character.only = TRUE)) {
+    install.packages(x)
+    library(x, character.only = TRUE)
+  }
+}
+)
+
+
+### Data Pre-processing
+df_billboard <- read.csv("./Data/billboard.csv")
+df_spotify <- read.csv("./Data/audio_features.csv")
+top_20_genres <- read.csv("./Data/top_20_genres.csv") %>%
+  select(X)
+
+df_billboard <- df_billboard %>%
+  mutate(Year = year(mdy(sub(" .*", "", week_id))),
+         Date = mdy(week_id),
+         Top_1 = peak_position == 1,
+         Top_10 = peak_position <= 10,
+         Top_20 = peak_position <= 20
+        )
+df_billboard_unique <- df_billboard %>%
+  group_by(song_id) %>%
+  filter(peak_position == min(peak_position)) %>%
+  ungroup() %>%
+  distinct(song_id, .keep_all = TRUE)
+
+df_spotify$spotify_genre <- sub(".$", "", sub("^.", "", df_spotify$spotify_genre))
+df_spotify$spotify_genre <- gsub("'", "", df_spotify$spotify_genre)
+df_spotify <- df_spotify %>%
+  filter(!is.na(spotify_genre))
+
+
+merged_df <- inner_join(df_billboard_unique, df_spotify, by = c("song_id","performer"))
+selected_df <- merged_df %>%
+  select(song_id, song = song.x, spotify_genre, Year, Date, performer, peak_position, Top_1, Top_10, Top_20, energy, acousticness) %>%
+  filter(Top_20 == TRUE)
+
+# unique_genres <- unique(unlist(lapply(strsplit(selected_df$spotify_genre, ","), trimws))) %>%
+#  sort()
+# for(genre in unique_genres) {
+#  selected_df[[genre]] <- sapply(selected_df$spotify_genre, function(x) as.integer(str_detect(x, fixed(genre))))
+#}
+# genre_counts <- colSums(selected_df[, unique_genres], na.rm = TRUE)
+# top_20_genres <- sort(genre_counts, decreasing = TRUE)[1:20]
+# write.csv(top_20_genres,"./Data/top_20_genres.csv")
+
+#This portion of code finds the top 20 most popular genres among songs that made it to the top 20 billboard position. Due to the number of unique genres (>500+), and the for loop creating a new column for each genre before checking if a song belongs in that genre, the code takes quite a long time to run. For convenience, I've ran it before hand and outputted the results in a csv that can be loaded in instead to speed up computation.
+
+
+ui <- fluidPage(
+  theme = shinytheme("yeti"),
+  titlePanel("How diverse is a particular artist?"),
+  tags$h4("Choose an artist within your selected genre(s) and see how diverse their top-rated songs are in terms of energy versus acousticness!", 
+          class = "text-muted"), # Subtitle with muted text style
+  sidebarLayout(
+    sidebarPanel(
+      selectizeInput('genreInput', 'Select Genre(s)', choices = top_20_genres, multiple = TRUE),
+      sliderInput("yearRange",
+                  "Select Year Range:",
+                  min = min(selected_df$Year),
+                  max = max(selected_df$Year),
+                  value = c(min(selected_df$Year), max(selected_df$Year)),
+                  step = 1,
+                  ticks = FALSE,
+                  sep = ""),
+      
+      
+      uiOutput("artistInput"), # Dynamically generated based on server logic
+      radioButtons('billboardPosition', 'Billboard Chart Position', choices = c('Top 1' = 'Top_1', 'Top 10' = 'Top_10', 'Top 20' = 'Top_20')),
+    ),
+    mainPanel(
+      plotlyOutput("scatterPlot"),
+      tags$div(
+        style = "color: #6c757d; font-size: 90%; margin-top: 20px;",
+        "Note: Genres were limited to the top 20 most popular genres across all songs that have hit the Billboard top 20 chart. Subsetted songs are intentionally left broad (selecting pop will include songs with genres like \"pop rock\", \"bubblegum pop\", etc)."
+      )
+    )
+  )
+)
+
+# Define server logic
+server <- function(input, output, session) {
+  # Create a reactive expression that filters artists based on selected genres
+  filtered_artists <- reactive({
+    if (length(input$genreInput) == 0) {
+      # If no genre is selected, show all artists
+      return(unique(selected_df$performer))
+    }
+    # Filter the dataframe to include only artists where all selected genres are in each song's genres, matching whole words
+    genre_filtered_df <- selected_df %>%
+      filter(purrr::map_lgl(spotify_genre, ~{
+        all(sapply(input$genreInput, function(g) {
+          regex <- paste0("\\b", g, "\\b")  # Create regex that matches the genre as a whole word
+          stringr::str_detect(.x, regex)
+        }))
+      }))
+    # Get unique artists from the filtered dataframe
+    unique(genre_filtered_df$performer)
+  })
+  
+  # Dynamically update artist selection input based on selected genres
+  output$artistInput <- renderUI({
+    selectizeInput('artist', 'Select Artist', choices = filtered_artists(), options = list(maxItems = 1))
+  })
+  
+  # Generate scatter plot
+  output$scatterPlot <- renderPlotly({
+    # Further filter data based on artist selection and other inputs
+    if (length(input$genreInput) == 0) {
+      return(NULL)  # Avoid plotting when no genre is selected
+    }
+    
+    filtered_data <- selected_df %>%
+      filter(purrr::map_lgl(spotify_genre, ~{
+        all(sapply(input$genreInput, function(g) {
+          regex <- paste0("\\b", g, "\\b")
+          stringr::str_detect(.x, regex)
+        }))
+      })) %>%
+      filter(between(Year, input$yearRange[1], input$yearRange[2])) %>%
+      filter(performer == input$artist | is.null(input$artist)) %>%
+      filter(get(input$billboardPosition))
+    
+    if (nrow(filtered_data) == 0) {
+      return(NULL)  # Avoid plotting when there's no data
+    }
+    
+    # Plot
+    plot_ly(data = filtered_data, x = ~energy, y = ~acousticness, type = 'scatter', mode = 'markers',
+            hoverinfo = 'text',
+            text = ~paste(
+              "<b>Artist:</b> ", performer, "<br>",
+              "<b>Song:</b> ", song, "<br>",
+              "<b>Genres:</b> ", spotify_genre, "<br>",
+              "<b>Year:</b> ", Year, "<br>",
+              "<b>Peak Billboard Position:</b> ", peak_position),
+            hoverlabel = list(bgcolor = "rgba(255,255,255,0.8)",  # Adjust transparency here
+                              font = list(size = 12, family = "Arial, sans-serif"))
+    ) %>%
+      layout(title = "Energy vs Acousticness",
+             xaxis = list(title = 'Energy'),
+             yaxis = list(title = 'Acousticness'),
+             hoverlabel = list(align = "left"))
+  })
+}
+
+
+# Run the application
+shinyApp(ui = ui, server = server)
+
+

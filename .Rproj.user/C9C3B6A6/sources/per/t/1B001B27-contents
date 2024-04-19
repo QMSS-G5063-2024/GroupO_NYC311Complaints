@@ -1,0 +1,387 @@
+---
+title: "Data Visualization Assignment 2 - Mapping Severe Weather Events"
+author: "Jaydon Jun Yu Chin"
+date: "2024-02-28"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    df_print: paged
+  keep_md: true
+  html_notebook: null
+---
+
+```{r setup, include=FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+packages <-
+  c(
+    "knitr",
+    "tidyverse",
+    "broom",
+    "DT",
+    "ggmap",
+    "ggthemes",
+    "maps",
+    "statebins",
+    "dplyr",
+    "readr",
+    "mapproj",
+    "RColorBrewer",
+    "stringr",
+    "scales",
+    "tidyverse",
+    "readxl",
+    "statebins",
+    "treemapify",
+    "RJSONIO",
+    "XML",
+    "RCurl",
+    "bindrcpp",
+    "tmap",
+    "rnaturalearth",
+    "sf",
+    "urbnmapr",
+    "leaflet",
+    "tools",
+    "ggplot2",
+    "htmlwidgets"
+  )
+
+
+packages <- lapply(packages, FUN = function(x) {
+  if(!require(x, character.only = TRUE)) {
+    install.packages(x)
+  library(x, character.only = TRUE)
+  }
+}
+)
+
+
+```
+
+```{r, echo=FALSE}
+data <- read.csv("H:/My Drive/QMSS 2023/Spring Semester/QMSS5063 - Data Visualization/07_severe_weather_GRADED/data/storms.csv")
+```
+
+## 1. Mapping Severe Weather Events
+### a) State Level Choropleth Maps
+Since we are looking at state-level, we ignore damages done to American territories like American Samoa or any bodies of water that belong to multiple states.
+
+I choose to use a green to red scale to provide an intuitive and visually compelling way to illustrate the severity of damage. This color-coded approach leverages the universal associations people have with colors: green typically signifies safety while the intermediary color (yellow/orange) serve to signal caution. Red, at the end of the scale, is the most visually striking and calls attention to the severity of weather events in those areas.
+
+As expected, coastal areas are more significantly affected by storms. The west coast seems to be more badly affected than the east coast, but both of these pale in comparison to the southern coast, with Louisiana, Florida, and Texas sustaining the highest damage in terms of monetary cost.
+
+```{r,  echo=FALSE, message = FALSE, warning = FALSE}
+
+q1a_data <- data  %>% select(c(STATE, STATE_FIPS, DAMAGE_PROPERTY_USD, DAMAGE_CROPS_USD)) %>%
+  na.omit()
+
+
+
+damage_per_state <- q1a_data %>%
+  mutate(TOTAL_DAMAGE_USD = DAMAGE_PROPERTY_USD + DAMAGE_CROPS_USD) %>%
+  group_by(STATE, STATE_FIPS) %>%
+  summarize(
+    DAMAGE_PROPERTY_USD = sum(DAMAGE_PROPERTY_USD),
+    DAMAGE_CROPS_USD = sum(DAMAGE_CROPS_USD),
+    TOTAL_DAMAGE_USD = sum(TOTAL_DAMAGE_USD)
+  )%>%
+  mutate(
+    DAMAGE_PROPERTY_USD = DAMAGE_PROPERTY_USD / 1e9,
+    DAMAGE_CROPS_USD = DAMAGE_CROPS_USD / 1e9,
+    TOTAL_DAMAGE_USD = TOTAL_DAMAGE_USD / 1e9
+  )
+
+us.states <- map_data("state")
+us.states <- us.states %>%
+  rename(STATE = region) %>%
+  mutate(STATE = toupper(STATE))
+
+
+merged_data <- left_join(us.states, damage_per_state, by = "STATE")
+
+a_plot <- ggplot(data = merged_data) +
+  geom_polygon(aes(x = long, y = lat, group = group, fill = TOTAL_DAMAGE_USD), color = "white") +
+  scale_fill_gradientn(colours=c("#FFFFFF","#55C667","#FFC933","#FF464A"), name = "Total Damage (Billion USD)", limits = c(0, max(merged_data$TOTAL_DAMAGE_USD, na.rm = TRUE))) + 
+  labs(
+    title = "Monetary Damage of Storms",
+    subtitle = "Southern coast is most affected by severe storms"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_blank(), 
+    axis.text.y = element_blank(), 
+    axis.ticks = element_blank(), 
+    axis.title.x = element_blank(), 
+    axis.title.y = element_blank(),
+    plot.title = element_text(face = "bold", size = 20),
+    plot.subtitle = element_text(color = "gray", size = 14, face = "italic")
+  ) +
+  coord_fixed(1.3) +
+  geom_polygon(aes(x = long, y = lat, group = group), fill = NA, color = "gray")
+
+a_plot
+
+```
+<br><br>
+
+
+
+### b) County Choropleth Maps
+
+I chose to include state lines despite it being a county-level map to enhances the map's usability as state lines improve the user's ability to orient themselves geographically. State lines serve as essential reference points that help users immediately recognize broad geographic areas. Without the state lines, it may be difficult to tell that the county that suffered the highest monetary damage is in Texas.
+
+That said, given that most counties do not suffer any storm-related damage, this visualization is not very helpful. Moreover, the combine lack of familiarity with county names and locations means that most individuals are not able to grasp any useful information from this visualization. Interactivity would help if users were allowed to zoom-in and a pop-up box with more information about the county and exact amount of damage appeared as users clicked on the counties that suffered damage from storms. 
+
+```{r,  echo=FALSE, message = FALSE, warning = FALSE }
+
+q1b_data <- data  %>% select(c(STATE, STATE_FIPS, CZ_TYPE, CZ_FIPS, CZ_NAME, DAMAGE_PROPERTY_USD, DAMAGE_CROPS_USD)) %>%
+  na.omit() %>%
+  filter(CZ_TYPE == "C")  %>% # Dropping all events that did not happen in a county
+  mutate(
+    STATE_FIPS = str_pad(STATE_FIPS, width = 2, pad = "0"),
+    CZ_FIPS = str_pad(CZ_FIPS, width = 3, pad = "0"),
+    county_fips = paste0(STATE_FIPS, CZ_FIPS)
+  )
+
+damage_per_county <- q1b_data %>%
+  mutate(TOTAL_DAMAGE_USD = DAMAGE_PROPERTY_USD + DAMAGE_CROPS_USD) %>%
+  group_by(county_fips, CZ_NAME, STATE) %>%
+  summarize(
+    DAMAGE_PROPERTY_USD = sum(DAMAGE_PROPERTY_USD),
+    DAMAGE_CROPS_USD = sum(DAMAGE_CROPS_USD),
+    TOTAL_DAMAGE_USD = sum(TOTAL_DAMAGE_USD)
+  )
+
+
+uscounties_sf <- get_urbn_map("counties", sf = TRUE)
+merged_data_1b <- left_join(damage_per_county, counties, by = "county_fips") %>%
+  mutate(
+    DAMAGE_PROPERTY_USD_1000000 = DAMAGE_PROPERTY_USD / 1000000,
+    DAMAGE_CROPS_USD_1000000 = DAMAGE_CROPS_USD / 1000000,
+    TOTAL_DAMAGE_USD_1000000 = TOTAL_DAMAGE_USD / 1000000
+  )
+
+b_plot <- ggplot(data = merged_data_1b) +
+  geom_polygon(aes(x = long, y = lat, group = group, fill = TOTAL_DAMAGE_USD_1000000), color = "white") +
+  scale_fill_gradientn(colours=c("#FFFFFF", "#55C667","#FFC933","#FF464A"), name = "Total Damage (Million USD)") +
+  labs(title = "Monetary Damage of Storms by County",
+       subtitle = "Dallas suffered the most from storms; Almost 2 Billion worth of monetary damage") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.text.y = element_blank(), axis.ticks = element_blank(), axis.title.x = element_blank(), axis.title.y = element_blank(),
+        plot.title = element_text(face = "bold", size = 20),
+        plot.subtitle = element_text(color = "darkgray", size = 14, face = "italic")) +
+  coord_fixed(1.3) +
+  geom_polygon(data = urbnmapr::states, 
+                  mapping = aes(x = long, y = lat, group = group),
+                  fill = NA, color = "gray", size=0.2)
+
+b_plot
+
+
+
+```
+<br><br>
+
+
+
+
+### c) Density Map
+I use the total number of direct and indirect injuries as a metric for storm damage instead . Given the sparseness of information at the county-level, I choose to  focus on state-level. 
+
+Visualizing damage based on total injuries rather than focusing solely on total monetary cost offers a more human-centric perspective on disasters, emphasizing the direct impact on people's lives rather than financial metrics. Moreover, this metric provides much more variation, which aids in readability as the greater variation effectively highlight differences between regions much more distincitly. For these reasons, I prefer this approach using injuries to visualize the distribution of the destructive effects of storms.
+
+California stands out at the state that has the highest number of total injuries. This is likely attributed to California's high population density around coastal areas. Urban areas may see more people affected by a single event due to the concentration of the population.  
+  
+
+```{r,  echo=FALSE, message = FALSE, warning = FALSE}
+
+q1c_data <- data  %>% select(c(STATE, STATE_FIPS, INJURIES_DIRECT, INJURIES_INDIRECT)) %>%
+  na.omit()
+
+
+injuries_per_state <- q1c_data %>%
+  mutate(TOTAL_INJURIES = INJURIES_DIRECT + INJURIES_INDIRECT) %>%
+  group_by(STATE, STATE_FIPS) %>%
+  summarize(
+    INJURIES_DIRECT = sum(INJURIES_DIRECT),
+    INJURIES_INDIRECT = sum(INJURIES_INDIRECT),
+    TOTAL_INJURIES = sum(TOTAL_INJURIES)
+  )
+
+
+
+merged_data_c <- left_join(us.states, injuries_per_state, by = "STATE")
+
+c_plot <- ggplot(data = merged_data_c) +
+  geom_polygon(aes(x = long, y = lat, group = group, fill = TOTAL_INJURIES), color = "white") +
+  scale_fill_gradientn(colours = c("#FFFFFF","#55C667","#FFC933","#FF464A"), name = "Total Injuries", limits = c(0, max(merged_data_c$TOTAL_INJURIES, na.rm = TRUE))) +
+  labs(title = "Total Number of Injuries from Storms",
+        subtitle = "California and Montana suffered the highest injury counts") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_blank(), 
+    axis.text.y = element_blank(), 
+    axis.ticks = element_blank(), 
+    axis.title.x = element_blank(), 
+    axis.title.y = element_blank(),
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(color = "darkgray", size = 14, face = "italic")
+  ) +
+  coord_fixed(1.3) +
+  geom_polygon(aes(x = long, y = lat, group = group), fill = NA, color = "gray")
+
+c_plot
+
+```
+<br><br>
+
+
+## 2. Location of Severe Events
+### a) Interactive Map of Severe Weather Events
+
+In the pop-up, I choose to show the state,  the date of when the severe weather event started, event type, and number of deaths. I believe these points of information are the most topical and what users would like to know about a specific severe weather event. 
+
+In terms of representing these events on a map, I choose to show where the storm starts.This can help identify regions that are more prone to certain types of storms, enabling targeted preparedness and mitigation efforts in those areas.
+
+I also choose to make the size of each circle scale according to the number of deaths. Storms that result in a larger number of deaths correspond to larger circles. This offers an intuitive way to grasp the severity of each event. Larger circles for more deadly storms make it easier for viewers to identify the most catastrophic events at a glance.
+
+Based on this map, we see that most severe weather events occur on the eastern part of the continent. There are likely geographical reasons for this, such as the combination of Gulf of Mexico's warm moist air, the Appalachian mountains, and the Gulf stream. 
+
+```{r,  echo = FALSE, message = FALSE, warning = FALSE}
+
+
+q2a_data <- data  %>% select(c(BEGIN_LAT, BEGIN_LON, END_LAT, END_LON, STATE, STATE_FIPS, EVENT_TYPE, BEGIN_YEARMONTH, BEGIN_DAY, DEATHS_DIRECT, DEATHS_INDIRECT)) %>%
+  na.omit() %>%
+  mutate(
+    deaths_total = DEATHS_DIRECT + DEATHS_INDIRECT,
+    event_start_date = as.Date(paste0(BEGIN_YEARMONTH, sprintf("%02d", BEGIN_DAY)), format = "%Y%m%d"),
+    STATE = str_to_title(STATE)
+  ) %>%
+  filter(deaths_total > 0)
+
+q2a_plot <- leaflet(q2a_data) %>%
+  addTiles() %>%  # Add default OpenStreetMap map tiles
+  setView(lng = -98.5795, lat = 39.8283, zoom = 3) %>%
+  addCircles(
+    lng = ~BEGIN_LON, 
+    lat = ~BEGIN_LAT,
+    radius = ~deaths_total^2 * 100,
+    popup = ~paste("State:", STATE, "<br>",
+                   "Start Date:", as.character(event_start_date), "<br>",
+                   "Type:", EVENT_TYPE, "<br>",
+                   "Number of Deaths:", deaths_total)
+    )
+  
+```
+
+```{r,  echo=FALSE, message = FALSE, warning = FALSE}
+q2a_plot
+
+```
+<br><br>
+
+### b) Color by Type of Weather Event
+
+First, we find out what unique weather events there are:
+
+```{r,  echo=FALSE, message = FALSE, warning = FALSE}
+
+q2b_data <- q2a_data
+unique_event_types <- unique(q2b_data$EVENT_TYPE)
+print(unique_event_types)
+
+```
+<br><br>
+
+I choose to collapse the various weather events into the 4 broad categories: Flood Related, Wind Related, Rain Related, and Storms.
+
+I choose the color palette Set1 from the RColorBrewer package as each color is distinct and hence good for representing different categorical data. 
+
+
+
+```{r,  echo=FALSE, message = FALSE, warning = FALSE}
+
+
+
+# Collapsing 
+
+q2b_data <- q2b_data %>%
+  mutate(EVENT_CATEGORY = case_when(
+    EVENT_TYPE %in% c("Flood", "Flash Flood", "Debris Flow") ~ "Flood Related",
+    EVENT_TYPE %in% c("Thunderstorm Wind", "Marine Thunderstorm Wind", "Marine Strong Wind") ~ "Wind Related",
+    EVENT_TYPE %in% c("Tornado", "Waterspout") ~ "Storms",
+    EVENT_TYPE %in% c("Lightning", "Hail", "Heavy Rain") ~ "Rain Related",
+  ))
+
+
+pal = colorFactor("Set1", domain = q2b_data$EVENT_CATEGORY) # Grab a palette
+color_offsel1 = pal(q2b_data$EVENT_CATEGORY)
+
+
+q2b_plot <- leaflet(q2b_data) %>%
+  addTiles() %>%  # Add default OpenStreetMap map tiles
+  setView(lng = -98.5795, lat = 39.8283, zoom = 3) %>%
+  addCircles(
+    lng = ~BEGIN_LON, 
+    lat = ~BEGIN_LAT,
+    radius = ~deaths_total^2 * 100,
+    color = color_offsel1,
+    fillOpacity = 0.5,
+    popup = ~paste("State:", STATE, "<br>",
+                   "Date:", as.character(event_start_date), "<br>",
+                   "Event Type:", EVENT_TYPE, "<br>",
+                   "Weather Category:", EVENT_CATEGORY, "<br>",
+                   "Number of Deaths:", deaths_total)
+    )%>%
+  addLegend(pal = pal, values = ~q2b_data$EVENT_CATEGORY, title = "Weather Category")
+  
+```
+```{r,  echo=FALSE, message = FALSE, warning = FALSE}
+q2b_plot
+
+```
+<br><br>
+
+### c) Cluster
+
+Clustering makes the map easier on the eyes, and allows users to explore which areas they are interested in. Clustering also makes it very obvious that the majority of severe weather events occurs in the middle of the continent.
+```{r,  echo=FALSE, message = FALSE, warning = FALSE}
+
+q2c_data <- q2b_data
+
+
+pal_c = colorFactor("Set1", domain = q2c_data$EVENT_CATEGORY) # Grab a palette
+color_offsel1_c = pal_c(q2c_data$EVENT_CATEGORY)
+
+
+q2c_plot <- leaflet(q2c_data) %>%
+  addTiles() %>%  # Add default OpenStreetMap map tiles
+  setView(lng = -98.5795, lat = 39.8283, zoom = 3) %>%
+  addCircleMarkers(
+    lng = ~BEGIN_LON, 
+    lat = ~BEGIN_LAT,
+    radius = ~deaths_total * 2,
+    color = color_offsel1_c,
+    fillOpacity = 0.5,
+    popup = ~paste("State:", STATE, "<br>",
+                   "Date:", as.character(event_start_date), "<br>",
+                   "Event Type:", EVENT_TYPE, "<br>",
+                   "Weather Category:", EVENT_CATEGORY, "<br>",
+                   "Number of Deaths:", deaths_total),
+    clusterOptions = markerClusterOptions()
+    )%>%
+  addLegend(pal = pal, values = ~q2c_data$EVENT_CATEGORY, title = "Weather Category")
+
+  
+```
+
+
+```{r,  echo=FALSE, message = FALSE, warning = FALSE}
+q2c_plot
+```
+ 
+
