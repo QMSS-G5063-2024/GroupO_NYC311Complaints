@@ -8,7 +8,13 @@ packages <-
     "leaflet.extras",
     "ggplot2",
     "lubridate",
-    "plotly"
+    "plotly",
+    "tidyr",
+    "data.table",
+    "highr",
+    "ggthemes",
+    "highcharter",
+    "DT"
   )
 
 packages <- lapply(packages, FUN = function(x) {
@@ -47,6 +53,57 @@ df <- df_2017 %>%
     Longitude >= -74.257159, Longitude <= -73.699215,
     Latitude >= 40.477399, Latitude <= 40.917577
   )
+
+
+########## CREATE DATAFRAMES FOR COMMUNITY DISTRICT TAB
+data = read.csv("C:/Users/limre/Desktop/QMSS/Spring Semester/5063 Data Visualization/Data Viz Assignments/Final Group Project/CD_dataset.csv")
+##### Subsetting the data further into 5 subsets based on Borough 
+# vector of all CD names
+temp = sort(unique(data$Community.Board))
+# Queens Borough CDs
+indices <- grep("QUEENS", temp)
+temp2 = temp[indices]
+Queens.CD = data[data$Community.Board %in% temp2, ]
+Queens.CD$Community.Board = gsub("QUEENS", "QN", Queens.CD$Community.Board)
+# Manhattan Borough CDs
+indices <- grep("MANHATTAN", temp)
+temp2 = temp[indices]
+Manhattan.CD = data[data$Community.Board %in% temp2, ]
+Manhattan.CD$Community.Board = gsub("MANHATTAN", "MN", Manhattan.CD$Community.Board)
+# Bronx Borough CDs
+indices <- grep("BRONX", temp)
+temp2 = temp[indices]
+Bronx.CD = data[data$Community.Board %in% temp2, ]
+Bronx.CD$Community.Board = gsub("BRONX", "BX", Bronx.CD$Community.Board)
+# Brooklyn Borough CDs
+indices <- grep("BROOKLYN", temp)
+temp2 = temp[indices]
+Brooklyn.CD = data[data$Community.Board %in% temp2, ]
+Brooklyn.CD$Community.Board = gsub("BRONX", "BX", Brooklyn.CD$Community.Board)
+# Staten Island Borough CDs
+indices <- grep("STATEN ISLAND", temp)
+temp2 = temp[indices]
+StatenIsland.CD = data[data$Community.Board %in% temp2, ]
+StatenIsland.CD$Community.Board = gsub("STATEN ISLAND", "SI", StatenIsland.CD$Community.Board)
+
+# clearing uneeded items
+rm(indices, temp2)
+##### CREATE DATAFRAME FOR CD DATA TABLE
+CD.DT.data = data %>%
+  group_by(Community.Board) %>%
+  summarize(Borough = unique(Borough[1]),
+            Neighborhoods = unique(Neighborhoods),
+            Environmental_calls = sum(Complaint.Category=="Environmental concerns"),
+            Housing_calls = sum(Complaint.Category=="Housing concerns"),
+            Noise_calls = sum(Complaint.Category=="Noise-related complaints"),
+            Transportation_calls = sum(Complaint.Category=="Transportation problems"),
+            Sanitation_calls = sum(Complaint.Category=="Sanitation issues"),
+            Other_calls = sum(Complaint.Category=="Others"),
+            Safety_calls = sum(Complaint.Category=="Safety and security")
+  )
+
+
+
 
 # Define UI
 ui <- fluidPage(
@@ -88,7 +145,14 @@ ui <- fluidPage(
                  leafletOutput("detailedMap")
                )
              )
+    ),
+    tabPanel("NYC Community Districts", 
+             fluidRow(
+               column(12, plotOutput("CD_Manhattan")),
+               column(12,dataTableOutput("CD_NYC311_table"))
+             )
     )
+    
   )
 )
 
@@ -103,6 +167,53 @@ server <- function(input, output) {
     df %>%
       filter(Complaint.Type %in% input$complaintTypeTS)
   })
+  
+  CD_table_data = CD.DT.data
+  
+  
+  output$CD_NYC311_table = renderDataTable({
+    
+    datatable(CD_table_data,
+      rownames = FALSE, 
+      colnames = c("Community Board", 
+                   "Borough", 
+                   "Neighborhoods Included", 
+                   "Calls About Environmental Concerns",
+                   "Calls About Housing Issues",
+                   "Calls About Noise Complaints", 
+                   "Calls About Transportation Issues",
+                   "Calls About Sanitation Concerns",
+                   "Other Miscellaneous Concerns",
+                   "Calls About Safety Issues"),
+      filter = list(position="top"), 
+      options = list(
+        dom = "Bfrtip",
+        buttons = I("colvis"),
+        language = list(sSearch = "Filter:"),
+        pageLength = 10,
+        lengthMenu = c(10, 15, 25)
+      ),
+      extensions = c("Buttons", "Responsive"))
+  })
+  
+  CD_Manhattan_data = Manhattan.CD
+  
+  output$CD_Manhattan = renderPlot({
+    ggplot(CD_Manhattan_data, aes(x = Community.Board, fill = Complaint.Category)) +
+      geom_bar(position = "stack") +
+      labs(title = "Breakdown Of NYC311 By Community District",
+           x = "Area",
+           y = "Number of Events") +
+      scale_fill_manual(values = c("Noise-related complaints" = "orange1", 
+                                   "Transportation problems" = "dodgerblue",
+                                   "Environmental concerns" = "lawngreen",
+                                   "Sanitation issues" = "black",
+                                   "Housing concerns" = "yellow",
+                                   "Safety and security" = "indianred1",
+                                   "Others" = "grey")) +
+      theme_minimal()
+    })
+  
   
   output$map <- renderLeaflet({
     leaflet(data = filteredDataNYC()) %>%
