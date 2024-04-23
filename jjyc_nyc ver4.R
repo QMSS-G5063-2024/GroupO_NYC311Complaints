@@ -148,7 +148,7 @@ ui <- fluidPage(
     ),
     tabPanel("NYC Community Districts", 
              fluidRow(
-               column(12, plotOutput("CD_Manhattan")),
+               column(12, plotlyOutput("CD_Manhattan")),
                column(12,dataTableOutput("CD_NYC311_table"))
              )
     )
@@ -198,7 +198,7 @@ server <- function(input, output) {
   
   CD_Manhattan_data = Manhattan.CD
   
-  output$CD_Manhattan = renderPlot({
+  output$CD_Manhattan = renderPlotly({
     ggplot(CD_Manhattan_data, aes(x = Community.Board, fill = Complaint.Category)) +
       geom_bar(position = "stack") +
       labs(title = "Breakdown Of NYC311 By Community District",

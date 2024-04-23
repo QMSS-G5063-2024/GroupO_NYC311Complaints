@@ -1,0 +1,30 @@
+testdata = read.csv("C:/Users/limre/Desktop/QMSS/Spring Semester/5063 Data Visualization/Data Viz Assignments/Final Group Project/updated_df_17_jun.csv",
+                    row.names=NULL)
+unique(testdata$Complaint.Type)
+
+
+sum(testdata$Complaint.Type=="Advocate-Property Value")
+sum(testdata$Complaint.Type=="Calorie Labeling")
+sum(testdata$Complaint.Type=="DOF Property - Update Account")
+
+
+
+top_150=unique(testdata$Complaint.Type)[1:50]
+
+
+data2 = testdata[testdata$Complaint.Type %in% top_150, ]
+
+write.csv(data2,
+          file = "C:/Users/limre/Desktop/QMSS/Spring Semester/5063 Data Visualization/Data Viz Assignments/Final Group Project/top_50complaints_data.csv",
+          row.names=FALSE)
+unique(data2$Complaint.Type)
+
+
+data3 = testdata[c(TRUE, FALSE), ]
+
+write.csv(data3,
+          file = "C:/Users/limre/Desktop/QMSS/Spring Semester/5063 Data Visualization/Data Viz Assignments/Final Group Project/oddrow_data.csv",
+          row.names=FALSE)
+
+
+unique(data3$Complaint.Type)
